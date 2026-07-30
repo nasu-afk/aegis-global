@@ -1,0 +1,31 @@
+{
+  "name": "aegis-global",
+  "version": "3.0.0",
+  "description": "AEGIS GLOBAL — AI-Powered Worldwide Disaster Intelligence Platform",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:gateway\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:gateway": "cd backend/gateway && npm run dev",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend/gateway && npm run build",
+    "test": "npm run test --workspaces",
+    "lint": "eslint . --ext .ts,.tsx",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

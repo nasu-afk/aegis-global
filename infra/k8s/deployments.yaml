@@ -1,0 +1,499 @@
+# ─── AEGIS GLOBAL — Kubernetes Manifests ────────────────────────────────────
+# Apply with: kubectl apply -f infra/k8s/
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aegis-production
+  labels:
+    istio-injection: enabled
+    app: aegis-global
+
+---
+# ─── ConfigMap — shared non-secret config ───────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-config
+  namespace: aegis-production
+data:
+  NODE_ENV:        "production"
+  LOG_LEVEL:       "info"
+  KAFKA_BROKERS:   "kafka-headless.aegis-production.svc.cluster.local:9092"
+  REDIS_URL:       "redis://redis-master.aegis-production.svc.cluster.local:6379"
+
+---
+# ─── Secret (in production use Vault / ESO) ─────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aegis-secrets
+  namespace: aegis-production
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD:   "REPLACE_IN_PRODUCTION"
+  MONGO_PASSWORD:      "REPLACE_IN_PRODUCTION"
+  REDIS_PASSWORD:      "REPLACE_IN_PRODUCTION"
+  JWT_SECRET:          "REPLACE_IN_PRODUCTION"
+  ANTHROPIC_API_KEY:   "REPLACE_IN_PRODUCTION"
+  TWILIO_ACCOUNT_SID:  "REPLACE_IN_PRODUCTION"
+  TWILIO_AUTH_TOKEN:   "REPLACE_IN_PRODUCTION"
+  SENDGRID_API_KEY:    "REPLACE_IN_PRODUCTION"
+  FCM_SERVER_KEY:      "REPLACE_IN_PRODUCTION"
+  MAPBOX_TOKEN:        "REPLACE_IN_PRODUCTION"
+
+---
+# ─── API GATEWAY ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: aegis-production
+  labels:
+    app: gateway
+    version: "3.0.0"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 2
+  template:
+    metadata:
+      labels:
+        app: gateway
+        version: "3.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "4000"
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: gateway
+          image: aegisglobal/gateway:3.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: aegis-config
+          env:
+            - name: PORT
+              value: "4000"
+            - name: AUTH_SERVICE_URL
+              value: "http://auth-service.aegis-production.svc.cluster.local:4001"
+            - name: ALERT_SERVICE_URL
+              value: "http://alert-service.aegis-production.svc.cluster.local:4002"
+            - name: GIS_SERVICE_URL
+              value: "http://gis-service.aegis-production.svc.cluster.local:4003"
+            - name: PREDICTION_SERVICE_URL
+              value: "http://prediction-service.aegis-production.svc.cluster.local:4004"
+            - name: SOS_SERVICE_URL
+              value: "http://sos-service.aegis-production.svc.cluster.local:4005"
+            - name: NOTIFICATION_SERVICE_URL
+              value: "http://notification-service.aegis-production.svc.cluster.local:4006"
+            - name: RESOURCE_SERVICE_URL
+              value: "http://resource-service.aegis-production.svc.cluster.local:4007"
+            - name: DRONE_SERVICE_URL
+              value: "http://drone-service.aegis-production.svc.cluster.local:4008"
+            - name: AI_SERVICE_URL
+              value: "http://ai-service.aegis-production.svc.cluster.local:4009"
+            - name: HISTORICAL_SERVICE_URL
+              value: "http://historical-service.aegis-production.svc.cluster.local:4010"
+            - name: SOCIAL_INTEL_SERVICE_URL
+              value: "http://social-intel-service.aegis-production.svc.cluster.local:4011"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: JWT_SECRET
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: REDIS_PASSWORD
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "250m"
+            limits:
+              memory: "512Mi"
+              cpu:    "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 15
+            periodSeconds:       10
+            timeoutSeconds:      5
+            failureThreshold:    3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 5
+            periodSeconds:       5
+            timeoutSeconds:      3
+          securityContext:
+            runAsNonRoot:             true
+            runAsUser:                1001
+            readOnlyRootFilesystem:   true
+            allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: aegis-production
+  labels:
+    app: gateway
+spec:
+  selector:
+    app: gateway
+  ports:
+    - name: http
+      port:       4000
+      targetPort: 4000
+      protocol:   TCP
+  type: ClusterIP
+
+---
+# ─── HPA for gateway ─────────────────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway-hpa
+  namespace: aegis-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind:       Deployment
+    name:       gateway
+  minReplicas: 3
+  maxReplicas: 50
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type:               Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type:               Utilization
+          averageUtilization: 75
+
+---
+# ─── AUTH SERVICE ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: aegis-production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: aegisglobal/auth-service:3.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4001
+          env:
+            - name: PORT
+              value: "4001"
+            - name: DATABASE_URL
+              value: "postgresql://aegis_admin:$(POSTGRES_PASSWORD)@postgres.aegis-production.svc.cluster.local:5432/aegis_core"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: POSTGRES_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: JWT_SECRET
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: REDIS_PASSWORD
+          envFrom:
+            - configMapRef:
+                name: aegis-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "200m"
+            limits:
+              memory: "512Mi"
+              cpu:    "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4001
+            initialDelaySeconds: 15
+            periodSeconds:       10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: aegis-production
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - port: 4001
+      targetPort: 4001
+
+---
+# ─── AI SERVICE ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-service
+  namespace: aegis-production
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: ai-service
+  template:
+    metadata:
+      labels:
+        app: ai-service
+    spec:
+      containers:
+        - name: ai-service
+          image: aegisglobal/ai-service:3.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4009
+          env:
+            - name: PORT
+              value: "4009"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: MONGO_URI
+              value: "mongodb://aegis_admin:$(MONGO_PASSWORD)@mongodb.aegis-production.svc.cluster.local:27017/aegis_ai?authSource=admin"
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: MONGO_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: REDIS_PASSWORD
+          envFrom:
+            - configMapRef:
+                name: aegis-config
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu:    "500m"
+            limits:
+              memory: "2Gi"
+              cpu:    "2000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4009
+            initialDelaySeconds: 20
+            periodSeconds:       15
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-service
+  namespace: aegis-production
+spec:
+  selector:
+    app: ai-service
+  ports:
+    - port: 4009
+      targetPort: 4009
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ai-service-hpa
+  namespace: aegis-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind:       Deployment
+    name:       ai-service
+  minReplicas: 5
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type:               Utilization
+          averageUtilization: 70
+
+---
+# ─── SOS SERVICE ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sos-service
+  namespace: aegis-production
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: sos-service
+  template:
+    metadata:
+      labels:
+        app: sos-service
+    spec:
+      containers:
+        - name: sos-service
+          image: aegisglobal/sos-service:3.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4005
+          env:
+            - name: PORT
+              value: "4005"
+            - name: AI_SERVICE_URL
+              value: "http://ai-service.aegis-production.svc.cluster.local:4009"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: POSTGRES_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aegis-secrets
+                  key: REDIS_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://aegis_admin:$(POSTGRES_PASSWORD)@postgres.aegis-production.svc.cluster.local:5432/aegis_core"
+          envFrom:
+            - configMapRef:
+                name: aegis-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "300m"
+            limits:
+              memory: "512Mi"
+              cpu:    "1000m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sos-service
+  namespace: aegis-production
+spec:
+  selector:
+    app: sos-service
+  ports:
+    - port: 4005
+      targetPort: 4005
+
+---
+# ─── INGRESS (NGINX) ─────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aegis-ingress
+  namespace: aegis-production
+  annotations:
+    kubernetes.io/ingress.class:              "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://aegisglobal.io"
+    cert-manager.io/cluster-issuer: "letsencrypt-production"
+spec:
+  tls:
+    - hosts:
+        - api.aegisglobal.io
+        - app.aegisglobal.io
+      secretName: aegis-tls-cert
+  rules:
+    - host: api.aegisglobal.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 4000
+    - host: app.aegisglobal.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
+
+---
+# ─── NETWORK POLICY ──────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aegis-network-policy
+  namespace: aegis-production
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: aegis-production
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: aegis-production
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 53
+          protocol: UDP

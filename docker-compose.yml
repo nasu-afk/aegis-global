@@ -1,0 +1,336 @@
+version: '3.9'
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: aegis-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aegis_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegis_dev_password}
+      POSTGRES_DB: aegis_core
+    ports:
+    - 5432:5432
+    volumes:
+    - postgres_data:/var/lib/postgresql/data
+    - ./infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U aegis_admin -d aegis_core
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  mongodb:
+    image: mongo:7.0
+    container_name: aegis-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: aegis_admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-aegis_dev_password}
+    ports:
+    - 27017:27017
+    volumes:
+    - mongo_data:/data/db
+    healthcheck:
+      test:
+      - CMD
+      - mongosh
+      - --eval
+      - db.adminCommand('ping')
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:7.2-alpine
+    container_name: aegis-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-aegis_dev_password}
+    ports:
+    - 6379:6379
+    volumes:
+    - redis_data:/data
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    container_name: aegis-elasticsearch
+    restart: unless-stopped
+    environment:
+    - discovery.type=single-node
+    - ELASTIC_PASSWORD=${ES_PASSWORD:-aegis_dev_password}
+    - xpack.security.enabled=true
+    - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+    - 9200:9200
+    volumes:
+    - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -s -u elastic:${ES_PASSWORD:-aegis_dev_password} http://localhost:9200/_cluster/health | grep -q '"status":"green\|yellow"'
+      interval: 20s
+      timeout: 10s
+      retries: 5
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: aegis-kafka
+    restart: unless-stopped
+    depends_on:
+    - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+    - 9092:9092
+    volumes:
+    - kafka_data:/var/lib/kafka/data
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: aegis-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+    - zk_data:/var/lib/zookeeper
+  gateway:
+    build:
+      context: ./backend/gateway
+      dockerfile: Dockerfile
+    container_name: aegis-gateway
+    restart: unless-stopped
+    ports:
+    - 4000:4000
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      AUTH_SERVICE_URL: http://auth-service:4001
+      ALERT_SERVICE_URL: http://alert-service:4002
+      GIS_SERVICE_URL: http://gis-service:4003
+      PREDICTION_SERVICE_URL: http://prediction-service:4004
+      SOS_SERVICE_URL: http://sos-service:4005
+      NOTIFICATION_SERVICE_URL: http://notification-service:4006
+      RESOURCE_SERVICE_URL: http://resource-service:4007
+      AI_SERVICE_URL: http://ai-service:4009
+      HISTORICAL_SERVICE_URL: http://historical-service:4010
+      SOCIAL_INTEL_SERVICE_URL: http://social-intel-service:4011
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_in_production}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
+    depends_on:
+    - redis
+    - auth-service
+  auth-service:
+    build:
+      context: ./backend/auth-service
+      dockerfile: Dockerfile
+    container_name: aegis-auth
+    restart: unless-stopped
+    ports:
+    - 4001:4001
+    environment:
+      NODE_ENV: development
+      PORT: 4001
+      DATABASE_URL: postgresql://aegis_admin:${POSTGRES_PASSWORD:-aegis_dev_password}@postgres:5432/aegis_core
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_in_production}
+      JWT_EXPIRES_IN: 15m
+      REFRESH_TOKEN_EXPIRES_IN: 7d
+      REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  alert-service:
+    build:
+      context: ./backend/alert-service
+      dockerfile: Dockerfile
+    container_name: aegis-alerts
+    restart: unless-stopped
+    ports:
+    - 4002:4002
+    environment:
+      NODE_ENV: development
+      PORT: 4002
+      DATABASE_URL: postgresql://aegis_admin:${POSTGRES_PASSWORD:-aegis_dev_password}@postgres:5432/aegis_core
+      KAFKA_BROKERS: kafka:29092
+      REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
+    depends_on:
+    - postgres
+    - kafka
+    - redis
+  gis-service:
+    build:
+      context: ./backend/gis-service
+      dockerfile: Dockerfile
+    container_name: aegis-gis
+    restart: unless-stopped
+    ports:
+    - 4003:4003
+    environment:
+      NODE_ENV: development
+      PORT: 4003
+      DATABASE_URL: postgresql://aegis_admin:${POSTGRES_PASSWORD:-aegis_dev_password}@postgres:5432/aegis_core
+      ES_URL: http://elasticsearch:9200
+      ES_PASSWORD: ${ES_PASSWORD:-aegis_dev_password}
+    depends_on:
+    - postgres
+    - elasticsearch
+  prediction-service:
+    build:
+      context: ./backend/prediction-service
+      dockerfile: Dockerfile
+    container_name: aegis-prediction
+    restart: unless-stopped
+    ports:
+    - 4004:4004
+    environment:
+      NODE_ENV: development
+      PORT: 4004
+      DATABASE_URL: postgresql://aegis_admin:${POSTGRES_PASSWORD:-aegis_dev_password}@postgres:5432/aegis_core
+      MONGO_URI: mongodb://aegis_admin:${MONGO_PASSWORD:-aegis_dev_password}@mongodb:27017/aegis_predictions?authSource=admin
+      KAFKA_BROKERS: kafka:29092
+    depends_on:
+    - postgres
+    - mongodb
+    - kafka
+  sos-service:
+    build:
+      context: ./backend/sos-service
+      dockerfile: Dockerfile
+    container_name: aegis-sos
+    restart: unless-stopped
+    ports:
+    - 4005:4005
+    environment:
+      NODE_ENV: development
+      PORT: 4005
+      DATABASE_URL: postgresql://aegis_admin:${POSTGRES_PASSWORD:-aegis_dev_password}@postgres:5432/aegis_core
+      KAFKA_BROKERS: kafka:29092
+      REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
+    depends_on:
+    - postgres
+    - kafka
+  notification-service:
+    build:
+      context: ./backend/notification-service
+      dockerfile: Dockerfile
+    container_name: aegis-notifications
+    restart: unless-stopped
+    ports:
+    - 4006:4006
+    environment:
+      NODE_ENV: development
+      PORT: 4006
+      DATABASE_URL: postgresql://aegis_admin:${POSTGRES_PASSWORD:-aegis_dev_password}@postgres:5432/aegis_core
+      KAFKA_BROKERS: kafka:29092
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      FCM_SERVER_KEY: ${FCM_SERVER_KEY}
+    depends_on:
+    - postgres
+    - kafka
+  resource-service:
+    build:
+      context: ./backend/resource-service
+      dockerfile: Dockerfile
+    container_name: aegis-resources
+    restart: unless-stopped
+    ports:
+    - 4007:4007
+    environment:
+      NODE_ENV: development
+      PORT: 4007
+      DATABASE_URL: postgresql://aegis_admin:${POSTGRES_PASSWORD:-aegis_dev_password}@postgres:5432/aegis_core
+      REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
+    depends_on:
+    - postgres
+    - redis
+  ai-service:
+    build:
+      context: ./backend/ai-service
+      dockerfile: Dockerfile
+    container_name: aegis-ai
+    restart: unless-stopped
+    ports:
+    - 4009:4009
+    environment:
+      NODE_ENV: development
+      PORT: 4009
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      MONGO_URI: mongodb://aegis_admin:${MONGO_PASSWORD:-aegis_dev_password}@mongodb:27017/aegis_ai?authSource=admin
+      REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
+    depends_on:
+    - mongodb
+    - redis
+  historical-service:
+    build:
+      context: ./backend/historical-service
+      dockerfile: Dockerfile
+    container_name: aegis-historical
+    restart: unless-stopped
+    ports:
+    - 4010:4010
+    environment:
+      NODE_ENV: development
+      PORT: 4010
+      DATABASE_URL: postgresql://aegis_admin:${POSTGRES_PASSWORD:-aegis_dev_password}@postgres:5432/aegis_historical
+      ES_URL: http://elasticsearch:9200
+      ES_PASSWORD: ${ES_PASSWORD:-aegis_dev_password}
+    depends_on:
+    - postgres
+    - elasticsearch
+  social-intel-service:
+    build:
+      context: ./backend/social-intel-service
+      dockerfile: Dockerfile
+    container_name: aegis-social
+    restart: unless-stopped
+    ports:
+    - 4011:4011
+    environment:
+      NODE_ENV: development
+      PORT: 4011
+      MONGO_URI: mongodb://aegis_admin:${MONGO_PASSWORD:-aegis_dev_password}@mongodb:27017/aegis_social?authSource=admin
+      KAFKA_BROKERS: kafka:29092
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+    depends_on:
+    - kafka
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aegis-frontend
+    restart: unless-stopped
+    ports:
+    - 3000:3000
+    environment:
+      VITE_API_URL: http://localhost:4000
+      VITE_WS_URL: ws://localhost:4000
+      VITE_MAPBOX_TOKEN: ${MAPBOX_TOKEN}
+      VITE_GROQ_API_KEY: ${GROQ_API_KEY}
+    depends_on:
+    - gateway
+volumes:
+  postgres_data: null
+  mongo_data: null
+  redis_data: null
+  es_data: null
+  kafka_data: null
+  zk_data: null
+networks:
+  default:
+    name: aegis-network
+    driver: bridge

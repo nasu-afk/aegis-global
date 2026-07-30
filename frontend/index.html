@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="AEGIS GLOBAL — AI-Powered Worldwide Disaster Intelligence Platform" />
+    <meta name="theme-color" content="#0a0e1a" />
+    <title>AEGIS GLOBAL — Disaster Intelligence</title>
+    <style>
+      /* Prevent flash of unstyled content */
+      body { margin: 0; background: #0a0e1a; color: #e2e8f0; font-family: system-ui, sans-serif; }
+      #root { min-height: 100vh; }
+      .boot-screen {
+        display: flex; align-items: center; justify-content: center;
+        height: 100vh; flex-direction: column; gap: 16px;
+      }
+      .boot-screen .logo { font-size: 2rem; }
+      .boot-screen .text { font-size: 0.875rem; color: #64748b; letter-spacing: 0.1em; text-transform: uppercase; }
+      .spinner {
+        width: 32px; height: 32px; border: 2px solid #1e2d4a;
+        border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot-screen">
+        <div class="logo">🌍</div>
+        <div class="text">AEGIS GLOBAL</div>
+        <div class="spinner"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
