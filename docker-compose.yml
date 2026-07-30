@@ -1,4 +1,3 @@
-version: '3.9'
 services:
   postgres:
     image: postgis/postgis:16-3.4
@@ -82,7 +81,8 @@ services:
     container_name: aegis-kafka
     restart: unless-stopped
     depends_on:
-    - zookeeper
+      zookeeper:
+        condition: service_healthy
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -94,6 +94,14 @@ services:
     - 9092:9092
     volumes:
     - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - cub kafka-ready -b localhost:29092 1 5 || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     container_name: aegis-zookeeper
@@ -103,6 +111,14 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     volumes:
     - zk_data:/var/lib/zookeeper
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - cub zk-ready localhost:2181 5 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
   gateway:
     build:
       context: ./backend/gateway
@@ -127,8 +143,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_in_production}
       REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
     depends_on:
-    - redis
-    - auth-service
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
   auth-service:
     build:
       context: ./backend/auth-service
@@ -165,9 +183,12 @@ services:
       KAFKA_BROKERS: kafka:29092
       REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
     depends_on:
-    - postgres
-    - kafka
-    - redis
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
   gis-service:
     build:
       context: ./backend/gis-service
@@ -183,8 +204,10 @@ services:
       ES_URL: http://elasticsearch:9200
       ES_PASSWORD: ${ES_PASSWORD:-aegis_dev_password}
     depends_on:
-    - postgres
-    - elasticsearch
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
   prediction-service:
     build:
       context: ./backend/prediction-service
@@ -200,9 +223,12 @@ services:
       MONGO_URI: mongodb://aegis_admin:${MONGO_PASSWORD:-aegis_dev_password}@mongodb:27017/aegis_predictions?authSource=admin
       KAFKA_BROKERS: kafka:29092
     depends_on:
-    - postgres
-    - mongodb
-    - kafka
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
   sos-service:
     build:
       context: ./backend/sos-service
@@ -218,8 +244,10 @@ services:
       KAFKA_BROKERS: kafka:29092
       REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
     depends_on:
-    - postgres
-    - kafka
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
   notification-service:
     build:
       context: ./backend/notification-service
@@ -238,8 +266,10 @@ services:
       SENDGRID_API_KEY: ${SENDGRID_API_KEY}
       FCM_SERVER_KEY: ${FCM_SERVER_KEY}
     depends_on:
-    - postgres
-    - kafka
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
   resource-service:
     build:
       context: ./backend/resource-service
@@ -254,8 +284,10 @@ services:
       DATABASE_URL: postgresql://aegis_admin:${POSTGRES_PASSWORD:-aegis_dev_password}@postgres:5432/aegis_core
       REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
     depends_on:
-    - postgres
-    - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
   ai-service:
     build:
       context: ./backend/ai-service
@@ -272,8 +304,10 @@ services:
       MONGO_URI: mongodb://aegis_admin:${MONGO_PASSWORD:-aegis_dev_password}@mongodb:27017/aegis_ai?authSource=admin
       REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
     depends_on:
-    - mongodb
-    - redis
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
   historical-service:
     build:
       context: ./backend/historical-service
@@ -289,8 +323,10 @@ services:
       ES_URL: http://elasticsearch:9200
       ES_PASSWORD: ${ES_PASSWORD:-aegis_dev_password}
     depends_on:
-    - postgres
-    - elasticsearch
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
   social-intel-service:
     build:
       context: ./backend/social-intel-service
@@ -307,7 +343,8 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
     depends_on:
-    - kafka
+      kafka:
+        condition: service_healthy
   frontend:
     build:
       context: ./frontend
