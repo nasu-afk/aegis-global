@@ -80,14 +80,18 @@ services:
     image: confluentinc/cp-kafka:7.6.0
     container_name: aegis-kafka
     restart: unless-stopped
-    depends_on:
-      zookeeper:
-        condition: service_healthy
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # KRaft mode -- no Zookeeper. This is a fixed, arbitrary cluster ID
+      # (any valid base64 UUID works); the entrypoint auto-formats storage
+      # against it on first boot and is then a no-op on every boot after.
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
     ports:
@@ -102,23 +106,6 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
-    container_name: aegis-zookeeper
-    restart: unless-stopped
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    volumes:
-    - zk_data:/var/lib/zookeeper
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - cub zk-ready localhost:2181 5 || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
   gateway:
     build:
       context: ./backend/gateway
@@ -366,7 +353,6 @@ volumes:
   redis_data: null
   es_data: null
   kafka_data: null
-  zk_data: null
 networks:
   default:
     name: aegis-network
