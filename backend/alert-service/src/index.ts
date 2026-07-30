@@ -53,7 +53,7 @@ async function initKafka() {
   await producer.connect();
   logger.info('Kafka producer connected');
 }
-initKafka().catch(err => logger.error('Kafka init failed', { err }));
+const kafkaReady = initKafka().catch(err => { logger.error('Kafka init failed', { err }); });
 
 // ─── Live disaster feed ingestion (GDACS) ──────────────────────────────────────
 // Runs once on boot (after a short delay to let migrations/Kafka settle) and
@@ -62,12 +62,14 @@ const GDACS_INTERVAL_MS = 10 * 60 * 1000;
 
 async function startIngestionSchedule() {
   await runMigrations();
-  setTimeout(() => {
-    runGdacsIngestion(db, publishEvent, logger).catch((err: unknown) => logger.error('Initial GDACS ingestion failed', { err }));
-    setInterval(() => {
-      runGdacsIngestion(db, publishEvent, logger).catch((err: unknown) => logger.error('Scheduled GDACS ingestion failed', { err }));
-    }, GDACS_INTERVAL_MS);
-  }, 5000);
+  // Wait for the actual Kafka connection (not a fixed delay) so the first
+  // ingestion run doesn't fire its publishEvent() calls before the producer
+  // is ready -- a fresh/cold Kafka broker can take well over 5s to come up.
+  await kafkaReady;
+  runGdacsIngestion(db, publishEvent, logger).catch((err: unknown) => logger.error('Initial GDACS ingestion failed', { err }));
+  setInterval(() => {
+    runGdacsIngestion(db, publishEvent, logger).catch((err: unknown) => logger.error('Scheduled GDACS ingestion failed', { err }));
+  }, GDACS_INTERVAL_MS);
 }
 startIngestionSchedule();
 
