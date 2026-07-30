@@ -1,8 +1,87 @@
-node_modules/
-dist/
-*.log
+# ─── Environment / secrets ────────────────────────────────────────────────────
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+**/secrets.json
+
+# ─── Node / npm ───────────────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn/
+.pnp.*
+
+# ─── Build output (backend services + frontend, all use ./dist) ──────────────
+dist/
+**/dist/
+build/
+**/build/
+.vite/
+*.tsbuildinfo
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+**/logs/
+
+# ─── Test / coverage ──────────────────────────────────────────────────────────
 coverage/
+**/coverage/
+.nyc_output/
+tests/e2e/results/
+tests/e2e/playwright-report/
+playwright-report/
+test-results/
+
+# ─── OS / editor cruft ────────────────────────────────────────────────────────
 .DS_Store
+Thumbs.db
+*.swp
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+*.pid
+docker-compose.override.yml
+
+# ─── Terraform (infra/terraform) ──────────────────────────────────────────────
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+
+# ─── Kubernetes (infra/k8s) ───────────────────────────────────────────────────
+**/k8s/**/secrets.yaml
+**/k8s/**/*-secret.yaml
+kubeconfig
+*.kubeconfig
+
+# ─── Python / ML (ml/training) ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.ipynb_checkpoints/
+ml/training/checkpoints/
+ml/training/runs/
+*.ckpt
+*.pt
+*.h5
+
+# ─── Misc local-only artifacts ────────────────────────────────────────────────
+*.local
+.cache/
+security-audit/*.local.*
