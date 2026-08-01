@@ -225,7 +225,7 @@ app.use('/api/v1/risk',         makeProxy(SERVICES.gis,           '/api/v1/risk'
 app.use('/api/v1/resources',    makeProxy(SERVICES.resources,     '/api/v1/resources'));
 app.use('/api/v1/shelters',     makeProxy(SERVICES.resources,     '/api/v1/shelters'));
 app.use('/api/v1/notifications',makeProxy(SERVICES.notifications, '/api/v1/notifications'));
-app.use('/api/v1/ai',           makeProxy(SERVICES.ai,            '/api/v1/ai'));
+app.use('/api/v1/ai',           makeProxy(SERVICES.ai,            '/api/v1/ai', ''));
 app.use('/api/v1/historical',   makeProxy(SERVICES.historical,    '/api/v1/historical'));
 app.use('/api/v1/social',       makeProxy(SERVICES.social,        '/api/v1/social'));
 
