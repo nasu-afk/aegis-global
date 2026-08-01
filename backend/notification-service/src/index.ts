@@ -35,28 +35,44 @@ const kafka    = new Kafka({ clientId: 'notification-service', brokers: (process
 let producer: Producer;
 let consumer: Consumer;
 
-async function initKafka() {
-  producer = kafka.producer();
-  consumer = kafka.consumer({ groupId: 'notification-service-group' });
-  await producer.connect();
-  await consumer.connect();
-  await consumer.subscribe({ topic: 'alert.issued',  fromBeginning: false });
-  await consumer.subscribe({ topic: 'sos.created',   fromBeginning: false });
-  await consumer.subscribe({ topic: 'disaster.created', fromBeginning: false });
+async function initKafka(attempt = 1, maxAttempts = 10): Promise<void> {
+  try {
+    producer = kafka.producer();
+    consumer = kafka.consumer({ groupId: 'notification-service-group' });
+    await producer.connect();
+    await consumer.connect();
+    await consumer.subscribe({ topic: 'alert.issued',  fromBeginning: false });
+    await consumer.subscribe({ topic: 'sos.created',   fromBeginning: false });
+    await consumer.subscribe({ topic: 'disaster.created', fromBeginning: false });
 
-  await consumer.run({
-    eachMessage: async ({ topic, message }) => {
-      const event = JSON.parse(message.value?.toString() || '{}');
-      logger.info('Kafka event received', { topic, eventType: event.eventType });
+    await consumer.run({
+      eachMessage: async ({ topic, message }) => {
+        const event = JSON.parse(message.value?.toString() || '{}');
+        logger.info('Kafka event received', { topic, eventType: event.eventType });
 
-      if (topic === 'alert.issued')     await processAlertEvent(event.payload);
-      if (topic === 'sos.created')      await processSOSEvent(event.payload);
-      if (topic === 'disaster.created') await processDisasterEvent(event.payload);
+        if (topic === 'alert.issued')     await processAlertEvent(event.payload);
+        if (topic === 'sos.created')      await processSOSEvent(event.payload);
+        if (topic === 'disaster.created') await processDisasterEvent(event.payload);
+      }
+    });
+    logger.info('Kafka consumers started');
+  } catch (err) {
+    // A brand-new topic can briefly return UNKNOWN_TOPIC_OR_PARTITION on
+    // subscribe before broker-side auto-creation has propagated -- retry
+    // instead of giving up permanently on the very first attempt.
+    const delayMs = Math.min(3000 * attempt, 15000);
+    logger.error('Kafka init failed, retrying', {
+      attempt, maxAttempts, delayMs,
+      err: err instanceof Error ? err.message : String(err)
+    });
+    if (attempt < maxAttempts) {
+      await new Promise(r => setTimeout(r, delayMs));
+      return initKafka(attempt + 1, maxAttempts);
     }
-  });
-  logger.info('Kafka consumers started');
+    logger.error(`Kafka init gave up after ${maxAttempts} attempts -- notifications will not fire until this service is restarted`);
+  }
 }
-initKafka().catch(err => logger.error('Kafka init failed', { err }));
+initKafka();
 
 app.use(express.json());
 
