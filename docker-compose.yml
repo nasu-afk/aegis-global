@@ -235,6 +235,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
   notification-service:
     build:
       context: ./backend/notification-service
@@ -252,10 +254,13 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY}
       FCM_SERVER_KEY: ${FCM_SERVER_KEY}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-aegis_dev_password}@redis:6379
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
   resource-service:
     build:
