@@ -23,10 +23,11 @@ export default defineConfig({
     rollupOptions: {
       external: [],
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          state:  ['zustand', '@tanstack/react-query'],
-          utils:  ['axios', 'date-fns', 'zod']
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (/[\\/]react-router-dom[\\/]|[\\/]react-router[\\/]|[\\/]react-dom[\\/]|[\\/]react[\\/]/.test(id)) return 'vendor';
+          if (/[\\/]zustand[\\/]|[\\/]@tanstack[\\/]react-query[\\/]/.test(id)) return 'state';
+          if (/[\\/]axios[\\/]|[\\/]date-fns[\\/]|[\\/]zod[\\/]/.test(id)) return 'utils';
         }
       }
     },
