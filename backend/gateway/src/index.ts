@@ -28,6 +28,10 @@ const logger = winston.createLogger({
 
 // ─── Redis client ─────────────────────────────────────────────────────────────
 const redis = createClient({ url: process.env.REDIS_URL });
+// node-redis v4 clients are EventEmitters -- with no 'error' listener attached,
+// any transient socket error (e.g. a brief Redis blip) becomes an uncaught
+// exception and crashes the whole process instead of just logging.
+redis.on('error', err => logger.error('Redis client error', { err }));
 redis.connect().catch(err => logger.error('Redis connection failed', { err }));
 
 // ─── Service registry ─────────────────────────────────────────────────────────
